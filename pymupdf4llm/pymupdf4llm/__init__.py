@@ -56,7 +56,7 @@ else:
             ocr_language=ocr_language,
         )
 
-    def to_markdown(
+    def to_markdown_rag(
         doc,
         *,
         header=True,

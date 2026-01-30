@@ -40,6 +40,7 @@ import string
 from binascii import b2a_base64
 from collections import defaultdict
 from dataclasses import dataclass
+from utils.technical_doc_headers import TechnicalDocHeaders
 
 import pymupdf
 from pymupdf import mupdf
@@ -442,7 +443,7 @@ def to_markdown(
     elif hdr_info is False:
         get_header_id = lambda s, page=None: ""
     else:
-        hdr_info = IdentifyHeaders(doc)
+        hdr_info = TechnicalDocHeaders(doc)
         get_header_id = hdr_info.get_header_id
 
     def max_header_id(spans, page):
@@ -1364,7 +1365,7 @@ if __name__ == "__main__":
             sys.exit(f"Page number(s) {wrong_pages} not in '{doc}'.")
 
     # get the markdown string
-    md_string = to_markdown(
+    md_string = to_markdown_rag(
         doc,
         pages=pages,
     )
