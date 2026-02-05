@@ -209,6 +209,11 @@ class TocHeaders:
         my_toc = [t for t in self.TOC if t[1] and t[-1] == page.number + 1]
         if not my_toc:  # no TOC items present on this page
             return ""
+
+        hdr_id = check_toc_for_line(spans, my_toc)
+        if hdr_id:
+            return hdr_id
+
         # Check if the span matches a TOC entry. This must be done in the
         # most forgiving way: exact matches are rare animals.
         text = span["text"].strip()  # remove leading and trailing whitespace
@@ -219,6 +224,27 @@ class TocHeaders:
                 # found a match: return the header tag
                 return "#" * lvl + " "
         return ""
+
+
+def check_toc_for_line(spans: list, my_toc: list) -> str:
+    """Check if entire line matches a TOC entry"""
+    if not spans:
+        return ""
+
+    full_text = " ".join([s["text"].strip() for s in spans if s["text"].strip()]).strip()
+    if not full_text:
+        return ""
+
+    normalized_line = " ".join(full_text.split())
+
+    for t in my_toc:
+        title = t[1].strip()
+        lvl = t[0]
+        normalized_tile = " ".join(title.split())
+
+        if normalized_line == normalized_tile:
+            return "#" * lvl + " "
+    return ""
 
 
 # store relevant parameters here
@@ -448,7 +474,7 @@ def to_markdown(
 
     def max_header_id(spans, page):
         hdr_ids = sorted(
-            [l for l in set([len(get_header_id(s, page=page)) for s in spans]) if l > 0]
+            [l for l in set([len(get_header_id(s, page=page, spans=spans)) for s in spans]) if l > 0]
         )
         if not hdr_ids:
             return ""
