@@ -197,7 +197,7 @@ class TocHeaders:
             # if opened here, close it now
             mydoc.close()
 
-    def get_header_id(self, span: dict, page=None) -> str:
+    def get_header_id(self, span: dict, spans: any, page=None) -> str:
         """Return appropriate markdown header prefix.
 
         Given a text span from a "dict"/"rawdict" extraction, determine the
