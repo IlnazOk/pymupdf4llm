@@ -443,7 +443,7 @@ def to_markdown(
     elif hdr_info is False:
         get_header_id = lambda s, page=None: ""
     else:
-        hdr_info = TechnicalDocHeaders(doc)
+        hdr_info = TocHeaders(doc)
         get_header_id = hdr_info.get_header_id
 
     def max_header_id(spans, page):
