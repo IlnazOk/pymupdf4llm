@@ -40,7 +40,7 @@ import string
 from binascii import b2a_base64
 from collections import defaultdict
 from dataclasses import dataclass
-from utils.technical_doc_headers import TechnicalDocHeaders
+from utils.header_detector import HeaderDetector
 
 import pymupdf
 from pymupdf import mupdf
@@ -67,6 +67,9 @@ pymupdf.TOOLS.unset_quad_corrections(True)
 
 GRAPHICS_TEXT = "\n![](%s)\n"
 
+from utils.header_detector import debug_log
+
+from utils.header_detector import GLOBAL_SPAN_DICT  # Импортируем из того же пакета
 
 class IdentifyHeaders:
     """Compute data for identifying header text.
@@ -88,6 +91,7 @@ class IdentifyHeaders:
         pages: list = None,
         body_limit: float = 12,  # force this to be body text
         max_levels: int = 6,  # accept this many header levels
+        header_config_path: str = "header_config.yaml"
     ):
         """Read all text and make a dictionary of fontsizes.
 
@@ -159,17 +163,30 @@ class IdentifyHeaders:
         if self.header_id.keys():
             self.body_limit = min(self.header_id.keys()) - 1
 
-    def get_header_id(self, span: dict, page=None) -> str:
-        """Return appropriate markdown header prefix.
+        self.header_config_path = header_config_path
+        self._header_detector = None  # Будем создавать лениво
 
-        Given a text span from a "dict"/"rawdict" extraction, determine the
-        markdown header prefix string of 0 to n concatenated '#' characters.
-        """
-        fontsize = round(span["size"])  # compute fontsize
-        if fontsize <= self.body_limit:
-            return ""
-        hdr_id = self.header_id.get(fontsize, "")
-        return hdr_id
+
+    def get_header_id(self, span: dict, page=None) -> str:
+            """Return appropriate markdown header prefix.
+            Given a text span from a "dict"/"rawdict" extraction, determine the
+            markdown header prefix string of 0 to n concatenated '#' characters.
+            """
+            fontsize = round(span["size"])  # compute fontsize
+            #if fontsize <= self.body_limit:
+            #    return ""
+
+            self._header_detector = HeaderDetector(self.header_config_path)
+
+            header_by_rules = self._header_detector.detect_header(span)
+            GLOBAL_SPAN_DICT[span["text"]] = header_by_rules
+            debug_log("log.txt", GLOBAL_SPAN_DICT)
+            del GLOBAL_SPAN_DICT[span["text"]]
+            if header_by_rules:
+                return header_by_rules
+
+            hdr_id = self.header_id.get(fontsize, "")
+            return hdr_id
 
 
 class TocHeaders:
@@ -469,12 +486,12 @@ def to_markdown(
     elif hdr_info is False:
         get_header_id = lambda s, page=None: ""
     else:
-        hdr_info = TocHeaders(doc)
+        hdr_info = IdentifyHeaders(doc)
         get_header_id = hdr_info.get_header_id
 
     def max_header_id(spans, page):
         hdr_ids = sorted(
-            [l for l in set([len(get_header_id(s, page=page, spans=spans)) for s in spans]) if l > 0]
+            [l for l in set([len(get_header_id(s, page)) for s in spans]) if l > 0]
         )
         if not hdr_ids:
             return ""
@@ -575,8 +592,12 @@ def to_markdown(
         prev_hdr_string = None
 
         for lrect, spans in nlines:
+            from pymupdf import Rect
+            if lrect == Rect(79.37999725341797, 91.08000183105469, 248.33599853515625, 104.45999908447266):
+                ValueError("Stop")
+
             # there may be tables or images inside the text block: skip them
-            if not outside_all_bboxes(lrect, parms.img_rects):
+            if not max_header_id(spans, page=parms.page) and not outside_all_bboxes(lrect, parms.img_rects):
                 continue
 
             # ------------------------------------------------------------
@@ -657,6 +678,9 @@ def to_markdown(
             # make text string for the full line
             text = " ".join([s["text"] for s in spans]).strip()
 
+            if text == "FEATURES" or text == "2 FEATURES":
+                ValueError("VBNM")
+
             # full line strikeout?
             all_strikeout = all([s["char_flags"] & 1 for s in spans])
             # full line italic?
@@ -668,6 +692,9 @@ def to_markdown(
 
             # if line is a header, this will return multiple "#" characters,
             # otherwise an empty string
+            if parms.page.number == 27 or parms.page.number == 28:
+                ValueError("NM<>")
+
             hdr_string = max_header_id(spans, page=parms.page)  # a header?
 
             if hdr_string:  # if a header line skip the rest
