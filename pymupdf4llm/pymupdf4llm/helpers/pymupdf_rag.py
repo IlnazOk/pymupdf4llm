@@ -39,6 +39,7 @@ import os
 import string
 from binascii import b2a_base64
 from collections import defaultdict
+from curses.ascii import isdigit
 from dataclasses import dataclass
 from utils.header_detector import HeaderDetector
 
@@ -167,7 +168,7 @@ class IdentifyHeaders:
         self._header_detector = None  # Будем создавать лениво
 
 
-    def get_header_id(self, span: dict, page=None) -> str:
+    def g_get_header_id(self, span: dict, page=None) -> str:
             """Return appropriate markdown header prefix.
             Given a text span from a "dict"/"rawdict" extraction, determine the
             markdown header prefix string of 0 to n concatenated '#' characters.
@@ -187,6 +188,39 @@ class IdentifyHeaders:
 
             hdr_id = self.header_id.get(fontsize, "")
             return hdr_id
+
+    def get_header_id(self, span: dict, page=None) -> str:
+            """Return appropriate markdown header prefix.
+            Given a text span from a "dict"/"rawdict" extraction, determine the
+            markdown header prefix string of 0 to n concatenated '#' characters.
+            """
+            if not span:
+                return ""
+
+            self._header_detector = HeaderDetector(self.header_config_path)
+            header_by_rules = self._header_detector.detect_header(span)
+
+            if header_by_rules:
+                return header_by_rules
+
+            return ""
+
+    @staticmethod
+    def merge_bboxes(bboxes):
+        if not bboxes:
+            return []
+
+        valid_bboxes = [b for b in bboxes]
+
+        if not valid_bboxes:
+            return []
+
+        x0 = min(b[0] for b in bboxes)
+        y0 = min(b[1] for b in bboxes)
+        x1 = max(b[2] for b in bboxes)
+        y1 = max(b[3] for b in bboxes)
+
+        return [x0, y0, x1, y1]
 
 
 class TocHeaders:
@@ -481,7 +515,7 @@ def to_markdown(
     # document and use font sizes as header level indicators.
     if callable(hdr_info):
         get_header_id = hdr_info
-    elif hasattr(hdr_info, "get_header_id") and callable(hdr_info.get_header_id):
+    elif hasattr(hdr_info, "get_header_id") and callable(hdr_info.my_get_header_id):
         get_header_id = hdr_info.get_header_id
     elif hdr_info is False:
         get_header_id = lambda s, page=None: ""
@@ -490,12 +524,51 @@ def to_markdown(
         get_header_id = hdr_info.get_header_id
 
     def max_header_id(spans, page):
-        hdr_ids = sorted(
-            [l for l in set([len(get_header_id(s, page)) for s in spans]) if l > 0]
-        )
-        if not hdr_ids:
+        temp_lengths = []
+
+        i = 0
+        while i < len(spans):
+            current_s = spans[i]
+
+            if page == 31:
+                print("Stop\n")
+            hdr = get_header_id(current_s, page)
+
+            if hdr:
+                temp_lengths.append(len(hdr))
+                i += 1
+                continue
+
+            if current_s["text"].isdigit() and i + 1 < len(spans):
+                next_s = spans[i + 1]
+                full_text = current_s["text"] + next_s["text"]
+
+                merge_span = {
+                    "text": full_text,
+                    "size": max(current_s.get("size", 0), next_s.get("size", 0)),
+                    "flags": current_s.get("flags", 0),
+                    "bbox": hdr_info.merge_bboxes([current_s.get("bbox", []), next_s.get("bbox", [])]),
+                }
+
+                hdr_merged = get_header_id(merge_span, page)
+                if hdr_merged:
+                    temp_lengths.append(len(hdr_merged))
+                    i += 2
+                    continue
+
+            i += 1
+
+        if not temp_lengths:
             return ""
-        return "#" * (hdr_ids[0] - 1) + " "
+
+        hdr_ids = sorted([l for l in set(temp_lengths) if l > 0])
+
+        return "#" * (hdr_ids[0] - 1) + " " if hdr_ids else ""
+
+    def mmax_header_id(spans, page):
+        hdr_ids = len(get_header_id(spans, page))
+        return "#" * (hdr_ids - 1) + " "
+
 
     def resolve_links(links, span):
         """Accept a span and return a markdown link string.
@@ -595,6 +668,9 @@ def to_markdown(
             from pymupdf import Rect
             if lrect == Rect(79.37999725341797, 91.08000183105469, 248.33599853515625, 104.45999908447266):
                 ValueError("Stop")
+
+            if lrect == Rect(79.37999725341797, 45.70497131347656, 536.04052734375, 223.7042999267578):
+                print("Stop")
 
             # there may be tables or images inside the text block: skip them
             if not max_header_id(spans, page=parms.page) and not outside_all_bboxes(lrect, parms.img_rects):
